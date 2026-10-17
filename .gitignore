@@ -14,3 +14,4 @@ inbox/*
 *.aac
 *.opus
 __pycache__/
+transcripts/*/language.txt

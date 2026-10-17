@@ -196,24 +196,52 @@ def api_transcribe(path, engine, language, prompt):
 _local_model = None
 
 
-def local_transcribe(path, language, prompt, model_size):
+def load_local_model(model_size):
     global _local_model
-    from faster_whisper import WhisperModel
     if _local_model is None:
+        from faster_whisper import WhisperModel
         log(f"Loading local Whisper model '{model_size}' (first time downloads it)...")
         _local_model = WhisperModel(model_size, device="cpu", compute_type="int8",
                                     cpu_threads=os.cpu_count() or 4)
+    return _local_model
+
+
+def load_audio(path):
     # Decode with ffmpeg ourselves; faster-whisper's own decoder (PyAV) breaks across versions
     import numpy as np
     raw = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(path),
                           "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
                          check=True, capture_output=True).stdout
-    audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
-    # condition_on_previous_text=False stops Whisper getting stuck repeating itself on
-    # chatty meeting audio (it was 10x slower with it on a real call recording)
-    segments, _ = _local_model.transcribe(
+    return np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+
+
+def detect_language_local(chunk_paths, model_size):
+    """Vote on the language using 30 s samples from across the whole recording.
+
+    Whisper normally guesses from the first 30 s only. On a real meeting the noisy
+    opening made it pick Tamil for English speech, which produced garbage and ran 6x slower.
+    """
+    model = load_local_model(model_size)
+    votes = {}
+    for path in chunk_paths:
+        audio = load_audio(path)
+        for offset in range(60, max(61, len(audio) // 16000 - 30), 120):
+            window = audio[offset * 16000:(offset + 30) * 16000]
+            lang, prob, _ = model.detect_language(window, vad_filter=True)
+            votes[lang] = votes.get(lang, 0) + prob
+    ranked = sorted(votes.items(), key=lambda kv: -kv[1])
+    log("Language vote: " + ", ".join(f"{k}={v:.1f}" for k, v in ranked[:4]))
+    return ranked[0][0]
+
+
+def local_transcribe(path, language, prompt, model_size):
+    model = load_local_model(model_size)
+    audio = load_audio(path)
+    # condition_on_previous_text=False and a short temperature list stop Whisper getting
+    # stuck repeating itself or retrying endlessly on chatty meeting audio
+    segments, _ = model.transcribe(
         audio, language=language, vad_filter=True, beam_size=1,
-        condition_on_previous_text=False,
+        condition_on_previous_text=False, temperature=[0.0, 0.2, 0.4],
         initial_prompt=prompt[-800:] if prompt else None)
     out, next_report = [], 120
     for s in segments:
@@ -283,6 +311,16 @@ def main():
     log(f"Engine: {engine}" + (f" (model {args.local_model})" if engine == "local" else ""))
     if engine == "local":
         log("Tip: set GROQ_API_KEY for roughly 50x faster transcription")
+        if not args.language:
+            lang_file = workdir / "language.txt"
+            if lang_file.exists():
+                args.language = lang_file.read_text().strip()
+            else:
+                log("Checking the language at several points in the recording...")
+                args.language = detect_language_local(
+                    [workdir / "chunks" / c["file"] for c in plan], args.local_model)
+                lang_file.write_text(args.language)
+            log(f"Language: {args.language} (use --language to override)")
 
     cache = workdir / f"cache_{engine}"
     cache.mkdir(exist_ok=True)
