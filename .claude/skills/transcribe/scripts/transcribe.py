@@ -209,10 +209,19 @@ def local_transcribe(path, language, prompt, model_size):
                           "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
                          check=True, capture_output=True).stdout
     audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+    # condition_on_previous_text=False stops Whisper getting stuck repeating itself on
+    # chatty meeting audio (it was 10x slower with it on a real call recording)
     segments, _ = _local_model.transcribe(
         audio, language=language, vad_filter=True, beam_size=1,
+        condition_on_previous_text=False,
         initial_prompt=prompt[-800:] if prompt else None)
-    return [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
+    out, next_report = [], 120
+    for s in segments:
+        out.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+        if s.end >= next_report:
+            log(f"    ...{fmt(s.end)} of this chunk done")
+            next_report += 120
+    return out
 
 
 # ---------- 4. output ----------
