@@ -1,0 +1,16 @@
+# Keep only the final transcripts in git, never the audio or working files
+transcripts/*/download/
+transcripts/*/chunks/
+transcripts/*/cache_*/
+transcripts/*/plan.json
+transcripts/*/segments.json
+inbox/*
+!inbox/.gitkeep
+*.mp3
+*.m4a
+*.wav
+*.ogg
+*.mp4
+*.aac
+*.opus
+__pycache__/
