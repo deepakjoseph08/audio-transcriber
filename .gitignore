@@ -17,3 +17,10 @@ __pycache__/
 transcripts/*/language.txt
 transcripts/*/source.json
 transcripts/*/source_url.txt
+*.flac
+*.wma
+*.webm
+*.mkv
+*.mov
+*.aiff
+*.amr
