@@ -51,7 +51,11 @@ def fetch(source, workdir):
         sys.exit(f"Not a file and not a URL: {source}")
 
     dl_dir = workdir / "download"
+    url_file = workdir / "source_url.txt"
+    if dl_dir.exists() and (not url_file.exists() or url_file.read_text(encoding="utf-8") != source):
+        shutil.rmtree(dl_dir)  # a different link was downloaded here before
     dl_dir.mkdir(parents=True, exist_ok=True)
+    url_file.write_text(source, encoding="utf-8")
     existing = [p for p in dl_dir.iterdir() if p.is_file() and not p.name.endswith(".part")]
     if existing:
         log(f"Using already downloaded {existing[0].name}")
@@ -122,11 +126,24 @@ def plan_cuts(total, silences, chunk=CHUNK_SECONDS):
 def make_chunks(src, workdir, total):
     chunk_dir = workdir / "chunks"
     plan_file = workdir / "plan.json"
-    if plan_file.exists():
+    source_file = workdir / "source.json"
+    source = {"name": src.name, "bytes": src.stat().st_size, "seconds": round(total, 2)}
+    same_source = source_file.exists() and \
+        json.loads(source_file.read_text(encoding="utf-8")) == source
+    if plan_file.exists() and same_source:
         plan = json.loads(plan_file.read_text())
         if all((chunk_dir / c["file"]).exists() for c in plan):
             log(f"Reusing {len(plan)} chunks from earlier run")
             return plan
+
+    # Different (or unknown) recording in this folder: clear old pieces so they are never mixed in
+    if plan_file.exists() or chunk_dir.exists():
+        log("Output folder held work from a different recording, clearing it")
+        for old in [chunk_dir, *workdir.glob("cache_*")]:
+            shutil.rmtree(old, ignore_errors=True)
+        for name in ("plan.json", "language.txt"):
+            (workdir / name).unlink(missing_ok=True)
+    source_file.write_text(json.dumps(source), encoding="utf-8")
 
     chunk_dir.mkdir(parents=True, exist_ok=True)
     log("Looking for natural pauses to cut at...")
@@ -260,7 +277,7 @@ def fmt(sec):
 
 
 def write_outputs(workdir, source_name, segments, total, engine):
-    (workdir / "segments.json").write_text(json.dumps(segments, indent=1, ensure_ascii=False))
+    (workdir / "segments.json").write_text(json.dumps(segments, indent=1, ensure_ascii=False), encoding="utf-8")
     (workdir / "transcript.txt").write_text(" ".join(s["text"] for s in segments), encoding="utf-8")
 
     # Group segments into ~1 minute paragraphs so the markdown is easy to read and cite
@@ -328,7 +345,7 @@ def main():
     for c in plan:
         out = cache / (c["file"] + ".json")
         if out.exists():
-            segs = json.loads(out.read_text())
+            segs = json.loads(out.read_text(encoding="utf-8"))
             log(f"  chunk {c['index'] + 1}/{len(plan)} already done")
         else:
             t0 = time.time()
@@ -337,7 +354,7 @@ def main():
                 segs = local_transcribe(path, args.language, prev_text, args.local_model)
             else:
                 segs = api_transcribe(path, engine, args.language, prev_text)
-            out.write_text(json.dumps(segs, ensure_ascii=False))
+            out.write_text(json.dumps(segs, ensure_ascii=False), encoding="utf-8")
             log(f"  chunk {c['index'] + 1}/{len(plan)} done in {time.time() - t0:.0f}s")
         for s in segs:
             all_segments.append({"start": s["start"] + c["start"], "end": s["end"] + c["start"],

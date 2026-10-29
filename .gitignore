@@ -15,3 +15,5 @@ inbox/*
 *.opus
 __pycache__/
 transcripts/*/language.txt
+transcripts/*/source.json
+transcripts/*/source_url.txt

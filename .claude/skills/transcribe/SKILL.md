@@ -28,6 +28,8 @@ python3 .claude/skills/transcribe/scripts/transcribe.py "<link-or-path>" --out t
 
 Pick `<short-name>` from the date and topic if known, e.g. `2026-10-17-client-call`.
 
+Use the python command that `setup.sh` printed at the end (`python3` on Mac/Linux, often `python` or `py` on Windows). Always wrap the path in double quotes: Windows paths like `"C:\Users\Name\OneDrive - Company\Calls\Ajay's call.flac"` have spaces, brackets and apostrophes. A path only works if the file is on the machine this session runs on; a cloud session cannot see a laptop's `C:\` drive, so ask for a Drive link instead.
+
 Options:
 - `--language en` or `--language hi` if the user says the language. Leave it out to auto-detect. For Hindi-English mixed talk, leave it out.
 - `--engine local` forces the free CPU engine. Default `auto` uses Groq if `GROQ_API_KEY` is set (fast), else OpenAI if `OPENAI_API_KEY` is set, else local.
